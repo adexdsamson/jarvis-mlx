@@ -6,7 +6,8 @@ from queue import Queue
 from playsound import playsound
 from melo.api import TTS
 from stt.VoiceActivityDetection import VADDetector
-from mlx_lm import load, generate
+# from mlx_lm import load, generate
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 from pydantic import BaseModel
 
 # Note keep this at the bottom to avoid errors. Or fix it and submit a PR
@@ -29,7 +30,9 @@ class Client:
         self.vad_data = Queue()
         self.tts = TTS(language="EN_NEWEST", device="mps")
         self.stt = FastTranscriber("mlx-community/whisper-large-v3-mlx-4bit")
-        self.model, self.tokenizer = load("mlx-community/Phi-3-mini-4k-instruct-8bit")
+        # self.model, self.tokenizer = load("mlx-community/Phi-3-mini-4k-instruct-8bit")
+        self.model = AutoModelForCausalLM.from_pretrained("microsoft/Phi-3-mini-4k-instruct", device_map="cuda", torch_dtype="auto", trust_remote_code=True)
+        self.tokenizer = AutoTokenizer.from_pretrained("microsoft/Phi-3-mini-4k-instruct")
 
         if startListening:
             self.toggleListening()
@@ -79,6 +82,26 @@ class Client:
             final_str += f"<|{message.role}|>{message.content}<|end|>\n"
 
         return final_str
+    
+    def generate(self, prompt, args={}):
+        pipe = pipeline(
+            "text-generation",
+            self.model,
+            self.tokenizer
+        )
+        
+        generation_args = {
+            "max_new_tokens": 500,
+            "return_full_text": False,
+            "temperature": 0.0,
+            "do_sample": False,
+            **args
+        }
+        
+        output = pipe(prompt, **generation_args)
+        print(output[0]['generated_text'])
+        
+        return output
 
     def transcription_loop(self):
         while True:
@@ -90,11 +113,11 @@ class Client:
                     self.addToHistory(transcribed["text"], "user")
 
                     history = self.getHistoryAsString()
-                    response = generate(
-                        self.model,
-                        self.tokenizer,
+                    response = self.generate(
+                        # self.model,
+                        # self.tokenizer,
                         prompt=history + "\n<|assistant|>",
-                        verbose=False,
+                        # verbose=False,
                     )
                     response = (
                         response.split("<|assistant|>")[0].split("<|end|>")[0].strip()
